@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	collection,
 	getDocs,
@@ -8,7 +8,13 @@ import {
 	updateDoc,
 	getDoc,
 } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import {
+	getStorage,
+	ref,
+	uploadBytes,
+	getDownloadURL,
+} from "firebase/storage";
+import { db, storage } from "../lib/firebase";
 import {
 	Container,
 	ListItem,
@@ -19,19 +25,26 @@ import {
 	List,
 	IconButton,
 	Divider,
-	Paper,
 	Grid,
+	ToggleButton,
+	ToggleButtonGroup,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
+import { searchPhotos } from "../lib/unsplash";
+import Webcam from "react-webcam";
 
 const Pantry = () => {
 	const [items, setItems] = useState([]);
 	const [item, setItem] = useState({ name: "", quantity: 1 });
 	const [editItem, setEditItem] = useState(null);
 	const [showAddItem, setShowAddItem] = useState(false);
+	const [selectedFile, setSelectedFile] = useState(null);
+	const [cameraMode, setCameraMode] = useState(false);
+	const [imageSrc, setImageSrc] = useState(null);
+	const webcamRef = useRef(null);
 
 	useEffect(() => {
 		const fetchItems = async () => {
@@ -41,6 +54,7 @@ const Pantry = () => {
 					...doc.data(),
 					id: doc.id,
 				}));
+				console.log("Fetched Items:", itemsList);
 				setItems(itemsList);
 			} catch (error) {
 				console.error("Error fetching items: ", error);
@@ -57,6 +71,25 @@ const Pantry = () => {
 		});
 	};
 
+	const handleFileChange = (e) => {
+		setSelectedFile(e.target.files[0]);
+		setImageSrc(null);
+	};
+
+	const handleCapture = () => {
+		const imageSrc = webcamRef.current.getScreenshot();
+		console.log("Captured Image Src:", imageSrc);
+		setImageSrc(imageSrc);
+	};
+
+	const handleImageUpload = async (file) => {
+		const storageRef = ref(storage, `images/${file.name}`);
+		console.log("Uploading image:", file.name);
+		await uploadBytes(storageRef, file);
+		console.log("Image Download URL:", downloadURL);
+		return await getDownloadURL(storageRef);
+	};
+
 	const handleToggleForm = () => {
 		setShowAddItem(!showAddItem);
 	};
@@ -65,23 +98,46 @@ const Pantry = () => {
 		e.preventDefault();
 		try {
 			if (!item.quantity) item.quantity = 1;
+			const capitalizeFirstLetter = (str) =>
+				str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+			const CapitalizedItemName = capitalizeFirstLetter(item.name);
+			let imageUrl;
+
+			if (selectedFile) {
+				imageUrl = await handleImageUpload(selectedFile);
+			} else if (imageSrc) {
+				const imageBlob = await (await fetch(imageSrc)).blob();
+				const file = new File([imageBlob], "captured_image.jpg", {
+					type: "image/jpeg",
+				});
+				imageUrl = await handleImageUpload(file);
+			} else {
+				imageUrl = await searchPhotos(CapitalizedItemName);
+			}
+			console.log("Image URL:", imageUrl);
 			if (editItem) {
 				const itemRef = doc(db, "pantry", editItem.id);
-				await updateDoc(itemRef, { quantity: item.quantity });
+				await updateDoc(itemRef, {
+					quantity: item.quantity,
+					image: imageUrl,
+					name: CapitalizedItemName,
+				});
 				setEditItem(null);
 			} else {
-				const existingItem = items.find((i) => i.name === item.name);
+				const existingItem = items.find((i) => i.name === CapitalizedItemName);
 				if (existingItem) {
 					const itemRef = doc(db, "pantry", existingItem.id);
 					await updateDoc(itemRef, { quantity: existingItem.quantity + 1 });
 				} else {
 					await addDoc(collection(db, "pantry"), {
-						name: item.name,
+						name: CapitalizedItemName,
 						quantity: 1,
+						image: imageUrl,
 					});
 				}
 			}
 			setItem({ name: "", quantity: 1 });
+			setSelectedFile(null);
 			setShowAddItem(false);
 			const querySnapshot = await getDocs(collection(db, "pantry"));
 			const itemsList = querySnapshot.docs.map((doc) => ({
@@ -182,6 +238,64 @@ const Pantry = () => {
 									fullWidth
 								/>
 							</Grid>
+							<Grid item xs={12}>
+								<ToggleButtonGroup
+									value={cameraMode ? "camera" : "upload"}
+									exclusive
+									onChange={(e, newCameraMode) =>
+										setCameraMode(newCameraMode === "camera")
+									}
+									aria-label="camera mode"
+								>
+									<ToggleButton value="camera" aria-label="use camera">
+										Use Camera
+									</ToggleButton>
+									<ToggleButton value="upload" aria-label="upload file">
+										Upload File
+									</ToggleButton>
+								</ToggleButtonGroup>
+							</Grid>
+							<Grid item xs={12}>
+								{cameraMode ? (
+									<Box
+										sx={{
+											position: "relative",
+											width: "100%",
+											height: "200px",
+											overflow: "hidden",
+										}}
+									>
+										<Webcam
+											audio={false}
+											ref={webcamRef}
+											screenshotFormat="image/jpeg"
+											width="100%"
+											videoConstraints={{
+												facingMode: "user",
+											}}
+										/>
+										<Button
+											variant="contained"
+											color="primary"
+											onClick={handleCapture}
+											sx={{ mt: 2 }}
+										>
+											Capture Photo
+										</Button>
+									</Box>
+								) : (
+									<input
+										type="file"
+										accept="image/*"
+										onChange={handleFileChange}
+									/>
+								)}
+								{imageSrc && (
+									<Box mt={2}>
+										<img src={imageSrc} alt="Captured" width="100%" />
+									</Box>
+								)}
+							</Grid>
 						</Grid>
 						<Button
 							type="submit"
@@ -203,6 +317,17 @@ const Pantry = () => {
 								}}
 							>
 								<ListItem>
+									{item.image && (
+										<img
+											src={item.image}
+											alt={item.name}
+											style={{
+												width: "100px",
+												height: "auto",
+												marginRight: "16px",
+											}}
+										/>
+									)}
 									<Grid container alignItems="center">
 										<Grid item xs={6}>
 											<Typography variant="body1">{item.name}</Typography>
