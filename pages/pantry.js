@@ -15,24 +15,10 @@ import {
 	getDownloadURL,
 } from "firebase/storage";
 import { db, storage } from "../lib/firebase";
-import {
-	Container,
-	ListItem,
-	Typography,
-	TextField,
-	Button,
-	Box,
-	List,
-	IconButton,
-	Divider,
-	Grid,
-	ToggleButton,
-	ToggleButtonGroup,
-} from "@mui/material";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
-import AddIcon from "@mui/icons-material/Add";
-import RemoveIcon from "@mui/icons-material/Remove";
+import { Container, Grid, Box } from "@mui/material";
+import Header from "../components/Header";
+import AddItemForm from "../components/AddItemForm";
+import PantryItemCard from "../components/PantryItemCard";
 import { searchPhotos } from "../lib/unsplash";
 import Webcam from "react-webcam";
 
@@ -54,7 +40,6 @@ const Pantry = () => {
 					...doc.data(),
 					id: doc.id,
 				}));
-				console.log("Fetched Items:", itemsList);
 				setItems(itemsList);
 			} catch (error) {
 				console.error("Error fetching items: ", error);
@@ -78,16 +63,19 @@ const Pantry = () => {
 
 	const handleCapture = () => {
 		const imageSrc = webcamRef.current.getScreenshot();
-		console.log("Captured Image Src:", imageSrc);
 		setImageSrc(imageSrc);
 	};
 
 	const handleImageUpload = async (file) => {
-		const storageRef = ref(storage, `images/${file.name}`);
-		console.log("Uploading image:", file.name);
-		await uploadBytes(storageRef, file);
-		console.log("Image Download URL:", downloadURL);
-		return await getDownloadURL(storageRef);
+		try {
+			const storageRef = ref(storage, `images/${file.name}`);
+			await uploadBytes(storageRef, file);
+			const downloadURL = await getDownloadURL(storageRef);
+			return downloadURL;
+		} catch (error) {
+			console.error("Error uploading image:", error);
+			throw error;
+		}
 	};
 
 	const handleToggleForm = () => {
@@ -114,7 +102,6 @@ const Pantry = () => {
 			} else {
 				imageUrl = await searchPhotos(CapitalizedItemName);
 			}
-			console.log("Image URL:", imageUrl);
 			if (editItem) {
 				const itemRef = doc(db, "pantry", editItem.id);
 				await updateDoc(itemRef, {
@@ -153,6 +140,7 @@ const Pantry = () => {
 	const handleEdit = (item) => {
 		setItem({ name: item.name, quantity: item.quantity });
 		setEditItem(item);
+		setShowAddItem(true);
 	};
 
 	const handleDelete = async (id) => {
@@ -192,189 +180,48 @@ const Pantry = () => {
 
 	return (
 		<Container
+			maxWidth="md"
 			sx={{
 				display: "flex",
 				flexDirection: "column",
 				alignItems: "center",
-				height: "100vh",
-				overflow: "hidden",
+				mt: 4,
+				mb: 4,
 			}}
 		>
-			<Button
-				variant="contained"
-				color="primary"
-				onClick={handleToggleForm}
-				sx={{ mt: 2 }}
-			>
-				{" "}
-				{showAddItem ? "Cancel" : "Add Item"}{" "}
-			</Button>
-			<Box sx={{ width: "500px", p: 3, boxShadow: 3 }}>
-				<Typography variant="h4" gutterBottom>
-					Your Pantry Items
-				</Typography>
-				{showAddItem && (
-					<Box component="form" onSubmit={handleSubmit} mb={3}>
-						<Grid container spacing={2}>
-							<Grid item xs={12}>
-								<TextField
-									name="name"
-									label="Item Name"
-									value={item.name}
-									onChange={handleChange}
-									required
-									fullWidth
-								/>
-							</Grid>
-
-							<Grid item xs={12}>
-								<TextField
-									name="quantity"
-									label="Quantity"
-									type="number"
-									value={item.quantity || ""}
-									onChange={handleChange}
-									required
-									fullWidth
-								/>
-							</Grid>
-							<Grid item xs={12}>
-								<ToggleButtonGroup
-									value={cameraMode ? "camera" : "upload"}
-									exclusive
-									onChange={(e, newCameraMode) =>
-										setCameraMode(newCameraMode === "camera")
-									}
-									aria-label="camera mode"
-								>
-									<ToggleButton value="camera" aria-label="use camera">
-										Use Camera
-									</ToggleButton>
-									<ToggleButton value="upload" aria-label="upload file">
-										Upload File
-									</ToggleButton>
-								</ToggleButtonGroup>
-							</Grid>
-							<Grid item xs={12}>
-								{cameraMode ? (
-									<Box
-										sx={{
-											position: "relative",
-											width: "100%",
-											height: "200px",
-											overflow: "hidden",
-										}}
-									>
-										<Webcam
-											audio={false}
-											ref={webcamRef}
-											screenshotFormat="image/jpeg"
-											width="100%"
-											videoConstraints={{
-												facingMode: "user",
-											}}
-										/>
-										<Button
-											variant="contained"
-											color="primary"
-											onClick={handleCapture}
-											sx={{ mt: 2 }}
-										>
-											Capture Photo
-										</Button>
-									</Box>
-								) : (
-									<input
-										type="file"
-										accept="image/*"
-										onChange={handleFileChange}
-									/>
-								)}
-								{imageSrc && (
-									<Box mt={2}>
-										<img src={imageSrc} alt="Captured" width="100%" />
-									</Box>
-								)}
-							</Grid>
+			<Header
+				onToggleForm={handleToggleForm}
+				showAddItem={showAddItem}
+				sx={{ width: "100%" }}
+			/>
+			{showAddItem && (
+				<AddItemForm
+					item={item}
+					handleChange={handleChange}
+					handleSubmit={handleSubmit}
+					cameraMode={cameraMode}
+					setCameraMode={setCameraMode}
+					selectedFile={selectedFile}
+					handleFileChange={handleFileChange}
+					handleCapture={handleCapture}
+					imageSrc={imageSrc}
+					setImageSrc={setImageSrc}
+					editItem={editItem}
+				/>
+			)}
+			<Box sx={{ width: "100%", overflow: "auto" }}>
+				<Grid container spacing={2}>
+					{items.map((item) => (
+						<Grid item xs={12} sm={6} md={4} key={item.id}>
+							<PantryItemCard
+								item={item}
+								handleEdit={handleEdit}
+								handleDelete={handleDelete}
+								handleQuantityChange={handleQuantityChange}
+							/>
 						</Grid>
-						<Button
-							type="submit"
-							variant="contained"
-							color="primary"
-							sx={{ mt: 2 }}
-						>
-							{editItem ? "Update Item" : "Add Item"}
-						</Button>
-					</Box>
-				)}
-				<Box sx={{ height: "300px", overflow: "auto", mt: 2 }}>
-					<List>
-						{items.map((item, index) => (
-							<Box
-								key={item.id}
-								sx={{
-									bgcolor: index % 2 === 0 ? "background.paper" : "grey.100",
-								}}
-							>
-								<ListItem>
-									{item.image && (
-										<img
-											src={item.image}
-											alt={item.name}
-											style={{
-												width: "100px",
-												height: "auto",
-												marginRight: "16px",
-											}}
-										/>
-									)}
-									<Grid container alignItems="center">
-										<Grid item xs={6}>
-											<Typography variant="body1">{item.name}</Typography>
-										</Grid>
-										<Grid item xs={6} container justifyContent="flex-end">
-											<IconButton
-												onClick={() => handleQuantityChange(item.id, 1)}
-											>
-												<AddIcon />
-											</IconButton>
-											<Box
-												sx={{
-													border: "1px solid #ccc",
-													borderRadius: "4px",
-													padding: "0 8px",
-													display: "inline-block",
-													minWidth: "30px",
-													textAlign: "center",
-												}}
-											>
-												{item.quantity}
-											</Box>
-											<IconButton
-												onClick={() => handleQuantityChange(item.id, -1)}
-											>
-												<RemoveIcon />
-											</IconButton>
-											<IconButton
-												onClick={() => handleEdit(item)}
-												color="primary"
-											>
-												<EditIcon />
-											</IconButton>
-											<IconButton
-												onClick={() => handleDelete(item.id)}
-												color="secondary"
-											>
-												<DeleteIcon />
-											</IconButton>
-										</Grid>
-									</Grid>
-								</ListItem>
-								<Divider />
-							</Box>
-						))}
-					</List>
-				</Box>
+					))}
+				</Grid>
 			</Box>
 		</Container>
 	);
